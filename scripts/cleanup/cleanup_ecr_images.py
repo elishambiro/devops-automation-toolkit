@@ -65,8 +65,8 @@ def main():
         print(f"{RED}boto3 not installed: pip install boto3{RESET}")
         return
 
-    session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-              boto3.Session(region_name=args.region)
+    session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+               if args.profile else boto3.Session(region_name=args.region))
     ecr = session.client("ecr")
 
     repos = [{"repositoryName": args.repo}] if args.repo else get_ecr_repos(ecr)
@@ -74,7 +74,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"  ECR Image Cleanup | Keep last {args.keep} per repo")
     if args.dry_run:
-        print(f"  MODE: DRY RUN")
+        print("  MODE: DRY RUN")
     print(f"{'='*60}\n")
 
     total_deleted = 0

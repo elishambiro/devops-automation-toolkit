@@ -83,8 +83,8 @@ def main():
         return
 
     try:
-        session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-                  boto3.Session(region_name=args.region)
+        session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+                   if args.profile else boto3.Session(region_name=args.region))
         ec2 = session.client("ec2")
         instances = get_instances(ec2, args.filter)
     except Exception:
@@ -96,7 +96,7 @@ def main():
             name = get_tag(i, "Name")
             env = get_tag(i, "Environment", get_tag(i, "Env", "-"))
             print(f"{name},{i['InstanceId']},{i['InstanceType']},{i['State']['Name']},"
-                  f"{i.get('PrivateIpAddress','-')},{i.get('PublicIpAddress','-')},"
+                  f"{i.get('PrivateIpAddress', '-')},{i.get('PublicIpAddress', '-')},"
                   f"{i['Placement']['AvailabilityZone']},{env}")
     else:
         print(f"{'NAME':25} {'ID':20} {'TYPE':13} {'STATE':10} {'PRIVATE IP':15} {'AZ':14} ENV")
@@ -109,7 +109,7 @@ def main():
             color = STATE_COLORS.get(state, RESET)
             counts[state] = counts.get(state, 0) + 1
             print(f"{name:25} {i['InstanceId']:20} {i['InstanceType']:13} "
-                  f"{color}{state:10}{RESET} {i.get('PrivateIpAddress','-'):15} "
+                  f"{color}{state:10}{RESET} {i.get('PrivateIpAddress', '-'):15} "
                   f"{i['Placement']['AvailabilityZone']:14} {env}")
 
         print(f"\nTotal: {len(instances)} instance(s)")

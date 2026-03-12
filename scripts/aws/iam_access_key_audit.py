@@ -39,7 +39,7 @@ def main():
     args = parser.parse_args()
 
     print(f"\n{'='*75}")
-    print(f"  IAM Access Key Audit")
+    print("  IAM Access Key Audit")
     print(f"  Max age: {args.max_age} days | Max unused: {args.max_unused} days")
     print(f"{'='*75}\n")
 

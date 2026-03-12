@@ -58,7 +58,7 @@ def main():
     namespaces = get_namespaces(args.namespace)
 
     print(f"\n{'='*75}")
-    print(f"  Kubernetes Namespace Summary")
+    print("  Kubernetes Namespace Summary")
     print(f"{'='*75}\n")
     print(f"{'NAMESPACE':25} {'PODS':6} {'RUNNING':8} {'FAILED':7} {'DEPLOYS':8} {'SERVICES'}")
     print("-" * 75)

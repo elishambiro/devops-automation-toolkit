@@ -19,11 +19,11 @@ YELLOW = "\033[93m"
 RESET = "\033[0m"
 
 DB_DEFAULTS = {
-    "postgres":  {"port": 5432, "banner": b""},
-    "mysql":     {"port": 3306, "banner": b""},
-    "redis":     {"port": 6379, "banner": b"*1\r\n$4\r\nPING\r\n"},
-    "mongodb":   {"port": 27017, "banner": b""},
-    "elastic":   {"port": 9200, "banner": b""},
+    "postgres": {"port": 5432, "banner": b""},
+    "mysql": {"port": 3306, "banner": b""},
+    "redis": {"port": 6379, "banner": b"*1\r\n$4\r\nPING\r\n"},
+    "mongodb": {"port": 27017, "banner": b""},
+    "elastic": {"port": 9200, "banner": b""},
 }
 
 
@@ -91,7 +91,7 @@ def main():
         ]
 
     print(f"\n{'='*65}")
-    print(f"  Database Connectivity Check")
+    print("  Database Connectivity Check")
     print(f"{'='*65}\n")
     print(f"{'TYPE':12} {'HOST':25} {'PORT':6} {'STATUS':10} {'LATENCY'}")
     print("-" * 65)

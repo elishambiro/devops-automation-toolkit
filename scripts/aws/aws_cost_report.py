@@ -7,7 +7,6 @@ Usage: python aws_cost_report.py --days 30 --profile myprofile
 """
 
 import argparse
-import json
 from datetime import datetime, timedelta
 
 try:

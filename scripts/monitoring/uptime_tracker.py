@@ -73,7 +73,7 @@ def show_report(log_file: str):
     color = GREEN if uptime_pct >= 99.9 else (RED if uptime_pct < 99 else "\033[93m")
 
     print(f"\n{'='*55}")
-    print(f"  Uptime Report")
+    print("  Uptime Report")
     print(f"  Period: {records[0]['timestamp']} → {records[-1]['timestamp']}")
     print(f"{'='*55}\n")
     print(f"  Uptime:       {color}{uptime_pct:.3f}%{RESET}  ({up_count}/{total} checks passed)")

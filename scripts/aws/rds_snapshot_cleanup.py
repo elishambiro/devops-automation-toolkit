@@ -33,7 +33,7 @@ def main():
     print(f"\n{'='*65}")
     print(f"  RDS Snapshot Cleanup | Older than {args.days} days")
     if args.dry_run:
-        print(f"  MODE: DRY RUN")
+        print("  MODE: DRY RUN")
     print(f"{'='*65}\n")
 
     if not HAS_BOTO3:
@@ -50,8 +50,8 @@ def main():
         return
 
     try:
-        session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-                  boto3.Session(region_name=args.region)
+        session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+                   if args.profile else boto3.Session(region_name=args.region))
         rds = session.client("rds")
     except Exception as e:
         print(f"{RED}Error: {e}{RESET}")

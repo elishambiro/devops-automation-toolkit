@@ -37,10 +37,10 @@ def main():
         return
 
     print(f"\n{'='*65}")
-    print(f"  CloudWatch Log Retention Manager")
+    print("  CloudWatch Log Retention Manager")
     print(f"  Retention: {args.retention} days | Region: {args.region}")
     if args.dry_run:
-        print(f"  MODE: DRY RUN")
+        print("  MODE: DRY RUN")
     print(f"{'='*65}\n")
 
     if not HAS_BOTO3:
@@ -59,8 +59,8 @@ def main():
         return
 
     try:
-        session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-                  boto3.Session(region_name=args.region)
+        session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+                   if args.profile else boto3.Session(region_name=args.region))
         logs = session.client("logs")
     except Exception as e:
         print(f"{RED}Error: {e}{RESET}")

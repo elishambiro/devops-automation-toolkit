@@ -52,7 +52,7 @@ def main():
     pods = data["items"]
 
     print(f"\n{'='*80}")
-    print(f"  K8s Resource Limits Check")
+    print("  K8s Resource Limits Check")
     print(f"{'='*80}\n")
 
     violations = []
@@ -97,7 +97,7 @@ def main():
         print(f"{severity}{v['namespace']:20} {v['pod']:35} {v['container']:20} {missing_str}{RESET}")
 
     print(f"\n{RED}Found {len(violations)} container(s) without proper resource configuration{RESET}")
-    print(f"\nRecommendation: Add resources.limits.cpu and resources.limits.memory to all containers.")
+    print("\nRecommendation: Add resources.limits.cpu and resources.limits.memory to all containers.")
 
 
 if __name__ == "__main__":

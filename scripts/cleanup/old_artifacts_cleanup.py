@@ -6,9 +6,8 @@ Usage: python old_artifacts_cleanup.py --dir ./builds --days 30 --dry-run
 """
 
 import argparse
-import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 RED = "\033[91m"
@@ -45,11 +44,11 @@ def main():
     patterns = [f"*{ext}" for ext in args.extensions] if args.extensions else ARTIFACT_PATTERNS
 
     print(f"\n{'='*60}")
-    print(f"  Artifact Cleanup")
+    print("  Artifact Cleanup")
     print(f"  Directory: {root}")
     print(f"  Older than: {args.days} days (before {datetime.fromtimestamp(cutoff).strftime('%Y-%m-%d')})")
     if args.dry_run:
-        print(f"  MODE: DRY RUN")
+        print("  MODE: DRY RUN")
     print(f"{'='*60}\n")
 
     deleted_count = 0

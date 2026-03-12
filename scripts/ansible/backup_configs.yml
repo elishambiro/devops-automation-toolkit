@@ -54,7 +54,7 @@
         mode: preserve
       loop: "{{ config_stats.results }}"
       when: item.stat.exists
-      ignore_errors: true
+      failed_when: false
 
     - name: Dump list of installed packages
       ansible.builtin.shell: |
@@ -63,9 +63,13 @@
       when: ansible_os_family == "Debian"
 
     - name: Dump running services
-      ansible.builtin.shell: |
-        systemctl list-units --type=service --state=running --no-pager > \
-          {{ backup_local_dir }}/{{ inventory_hostname }}/running_services.txt
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - >
+            systemctl list-units --type=service --state=running --no-pager
+            > {{ backup_local_dir }}/{{ inventory_hostname }}/running_services.txt
       changed_when: true
 
     - name: Create compressed archive

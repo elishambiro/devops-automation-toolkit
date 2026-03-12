@@ -47,7 +47,7 @@ def main():
             images_by_ns[ns].add(c["image"])
 
     print(f"\n{'='*70}")
-    print(f"  Container Image Versions")
+    print("  Container Image Versions")
     print(f"{'='*70}\n")
 
     total = 0

@@ -90,8 +90,8 @@ def main():
     else:
         findings = []
         try:
-            session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-                      boto3.Session(region_name=args.region)
+            session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+                       if args.profile else boto3.Session(region_name=args.region))
             findings += scan_ec2(session.client("ec2"), args.required_tags)
             findings += scan_rds(session.client("rds"), args.required_tags)
         except Exception as e:
@@ -109,7 +109,7 @@ def main():
         print(f"{RED}{f['type']:6}{RESET} {f['id']:22} {f['name']:25} {YELLOW}{missing_str}{RESET}")
 
     print(f"\n{RED}Found {len(findings)} resource(s) with missing tags{RESET}")
-    print(f"\nRecommendation: Add the following tags to all resources:")
+    print("\nRecommendation: Add the following tags to all resources:")
     for tag in args.required_tags:
         print(f"  - {CYAN}{tag}{RESET}")
 

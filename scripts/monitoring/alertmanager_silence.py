@@ -9,7 +9,6 @@ Usage: python alertmanager_silence.py --action create --matcher alertname=HighCP
 """
 
 import argparse
-import json
 from datetime import datetime, timedelta, timezone
 
 import requests

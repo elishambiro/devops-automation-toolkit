@@ -7,7 +7,6 @@ Usage: python disk_usage_alert.py --threshold 80 --critical 90
 
 import argparse
 import shutil
-import os
 import sys
 
 GREEN = "\033[92m"
@@ -60,7 +59,7 @@ def main():
     disks = get_disk_usage()
 
     print(f"\n{'='*70}")
-    print(f"  Disk Usage Report")
+    print("  Disk Usage Report")
     print(f"{'='*70}")
     print(f"\n{'MOUNT':20} {'TOTAL':8} {'USED':8} {'FREE':8} {'USE%':6} STATUS")
     print("-" * 70)

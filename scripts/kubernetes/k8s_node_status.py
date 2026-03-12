@@ -61,7 +61,7 @@ def main():
     nodes = kubectl(["get", "nodes"])["items"]
 
     print(f"\n{'='*85}")
-    print(f"  Kubernetes Node Status")
+    print("  Kubernetes Node Status")
     print(f"{'='*85}\n")
     print(f"{'NAME':30} {'ROLE':12} {'STATUS':8} {'VERSION':16} {'CPU':8} {'MEMORY':10} {'PODS'}")
     print("-" * 85)
@@ -72,7 +72,6 @@ def main():
         role = get_node_roles(node)
         ready = is_node_ready(node)
         version = node["status"]["nodeInfo"]["kubeletVersion"]
-        capacity = node["status"]["capacity"]
         allocatable = node["status"]["allocatable"]
 
         cpu = parse_cpu(allocatable.get("cpu", "0"))

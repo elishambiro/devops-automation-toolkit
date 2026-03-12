@@ -49,7 +49,7 @@ def main():
     args = parser.parse_args()
 
     print(f"\n{'='*60}")
-    print(f"  API Benchmark")
+    print("  API Benchmark")
     print(f"  URL:         {args.url}")
     print(f"  Requests:    {args.num_requests}")
     print(f"  Concurrency: {args.concurrency}")
@@ -72,7 +72,7 @@ def main():
     success_rate = len(latencies) / len(results) * 100
 
     print(f"\n{'='*60}")
-    print(f"  Results")
+    print("  Results")
     print(f"{'='*60}\n")
     print(f"  Total requests:  {len(results)}")
     print(f"  Successful:      {len(latencies)} ({success_rate:.1f}%)")

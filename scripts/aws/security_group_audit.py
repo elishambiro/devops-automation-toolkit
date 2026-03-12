@@ -74,8 +74,8 @@ def main():
         ]
     else:
         try:
-            session = boto3.Session(profile_name=args.profile, region_name=args.region) if args.profile else \
-                      boto3.Session(region_name=args.region)
+            session = (boto3.Session(profile_name=args.profile, region_name=args.region)
+                       if args.profile else boto3.Session(region_name=args.region))
             ec2 = session.client("ec2")
             sgs = ec2.describe_security_groups()["SecurityGroups"]
         except Exception as e:
@@ -110,7 +110,7 @@ def main():
         print(f"{color}[{f['severity']:8}]{RESET} {f['sg_id']:15} {f['sg_name']:20} "
               f"{f['direction']:8} port={f['port']:12}{service_str}")
 
-    print(f"\nSummary:")
+    print("\nSummary:")
     print(f"  {RED}CRITICAL: {counts['CRITICAL']}{RESET}")
     print(f"  {YELLOW}HIGH:     {counts['HIGH']}{RESET}")
     print(f"  MEDIUM:   {counts['MEDIUM']}")

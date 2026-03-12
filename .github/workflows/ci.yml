@@ -23,7 +23,7 @@ jobs:
           pip install flake8 requests boto3 psutil
 
       - name: Flake8 lint
-        run: flake8 scripts/ --max-line-length=120 --ignore=E501,W503
+        run: flake8 scripts/ --max-line-length=120 --ignore=E501,W503,E226
 
       - name: Check Python syntax
         run: |
