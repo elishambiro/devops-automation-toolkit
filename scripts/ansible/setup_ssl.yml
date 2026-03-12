@@ -1,0 +1,135 @@
+---
+# setup_ssl.yml
+# Obtains and installs Let's Encrypt SSL certificates using Certbot.
+# Configures Nginx to serve HTTPS with strong cipher suites and HTTP→HTTPS redirect.
+# Sets up automatic renewal via systemd timer.
+# Usage: ansible-playbook setup_ssl.yml -i inventory.ini \
+#          -e "domains=['example.com','www.example.com'] email=admin@example.com"
+
+- name: Set up SSL certificates with Certbot
+  hosts: web_servers
+  become: true
+  vars:
+    domains: []            # Required: list of domains to issue cert for
+    email: ""              # Required: ACME account email
+    webroot_path: /var/www/html
+    nginx_ssl_conf: /etc/nginx/snippets/ssl-params.conf
+    certbot_staging: false  # Set to true to use Let's Encrypt staging (testing only)
+
+  pre_tasks:
+    - name: Verify required variables are set
+      ansible.builtin.assert:
+        that:
+          - domains | length > 0
+          - email | length > 0
+        fail_msg: "You must set 'domains' (list) and 'email' variables."
+
+  tasks:
+    - name: Install Certbot and Nginx plugin
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: true
+
+    - name: Create webroot directory for ACME challenges
+      ansible.builtin.file:
+        path: "{{ webroot_path }}/.well-known/acme-challenge"
+        state: directory
+        mode: "0755"
+
+    - name: Obtain certificate with Certbot (webroot method)
+      ansible.builtin.command: >
+        certbot certonly --webroot
+        --webroot-path {{ webroot_path }}
+        --email {{ email }}
+        --agree-tos
+        --no-eff-email
+        {% if certbot_staging %}--staging{% endif %}
+        {% for domain in domains %}-d {{ domain }} {% endfor %}
+      args:
+        creates: "/etc/letsencrypt/live/{{ domains[0] }}/fullchain.pem"
+      register: certbot_result
+      notify: Reload Nginx
+
+    - name: Write strong SSL configuration snippet
+      ansible.builtin.copy:
+        dest: "{{ nginx_ssl_conf }}"
+        mode: "0644"
+        content: |
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_prefer_server_ciphers off;
+          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+          ssl_session_cache shared:SSL:10m;
+          ssl_session_timeout 1d;
+          ssl_session_tickets off;
+          ssl_stapling on;
+          ssl_stapling_verify on;
+          resolver 8.8.8.8 8.8.4.4 valid=300s;
+          resolver_timeout 5s;
+          add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+      notify: Reload Nginx
+
+    - name: Write HTTPS Nginx site configuration
+      ansible.builtin.copy:
+        dest: "/etc/nginx/sites-available/{{ domains[0] }}-ssl.conf"
+        mode: "0644"
+        content: |
+          # HTTP → HTTPS redirect
+          server {
+              listen 80;
+              server_name {{ domains | join(' ') }};
+              return 301 https://$host$request_uri;
+          }
+
+          # HTTPS
+          server {
+              listen 443 ssl http2;
+              server_name {{ domains | join(' ') }};
+
+              ssl_certificate     /etc/letsencrypt/live/{{ domains[0] }}/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/{{ domains[0] }}/privkey.pem;
+              include             {{ nginx_ssl_conf }};
+
+              root /var/www/html;
+              index index.html;
+
+              location / {
+                  try_files $uri $uri/ =404;
+              }
+          }
+      notify: Reload Nginx
+
+    - name: Enable HTTPS site
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ domains[0] }}-ssl.conf"
+        dest: "/etc/nginx/sites-enabled/{{ domains[0] }}-ssl.conf"
+        state: link
+      notify: Reload Nginx
+
+    - name: Enable Certbot renewal timer
+      ansible.builtin.systemd:
+        name: certbot.timer
+        enabled: true
+        state: started
+
+    - name: Test renewal (dry run)
+      ansible.builtin.command: certbot renew --dry-run
+      register: renewal_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: SSL setup summary
+      ansible.builtin.debug:
+        msg:
+          - "Certificate: /etc/letsencrypt/live/{{ domains[0] }}/fullchain.pem"
+          - "Domains    : {{ domains | join(', ') }}"
+          - "Auto-renewal: enabled (certbot.timer)"
+          - "Renewal test: {{ 'OK' if renewal_test.rc == 0 else 'FAILED - check certbot logs' }}"
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded

@@ -1,0 +1,130 @@
+---
+# setup_nginx.yml
+# Installs Nginx as a reverse proxy / load balancer.
+# Configures virtual hosts from a list, enables Gzip, sets security headers,
+# and optionally configures upstream load balancing.
+# Usage: ansible-playbook setup_nginx.yml -i inventory.ini
+
+- name: Install and configure Nginx
+  hosts: web_servers
+  become: true
+  vars:
+    nginx_worker_processes: auto
+    nginx_worker_connections: 1024
+    # List of virtual host configs
+    nginx_vhosts:
+      - server_name: "example.com www.example.com"
+        listen_port: 80
+        root: /var/www/html
+        index: "index.html index.htm"
+        # Optional: upstream load balancing
+        # upstream_name: app_backend
+        # upstream_servers:
+        #   - "127.0.0.1:8080"
+        #   - "127.0.0.1:8081"
+        # proxy_pass: http://app_backend
+        locations:
+          - path: /
+            directives:
+              - "try_files $uri $uri/ =404;"
+
+  tasks:
+    - name: Install Nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure Nginx is enabled
+      ansible.builtin.systemd:
+        name: nginx
+        enabled: true
+        state: started
+
+    - name: Write global Nginx configuration
+      ansible.builtin.copy:
+        dest: /etc/nginx/nginx.conf
+        mode: "0644"
+        backup: true
+        content: |
+          user www-data;
+          worker_processes {{ nginx_worker_processes }};
+          pid /run/nginx.pid;
+
+          events {
+              worker_connections {{ nginx_worker_connections }};
+              multi_accept on;
+          }
+
+          http {
+              sendfile on;
+              tcp_nopush on;
+              tcp_nodelay on;
+              keepalive_timeout 65;
+              types_hash_max_size 2048;
+              server_tokens off;
+
+              include /etc/nginx/mime.types;
+              default_type application/octet-stream;
+
+              # Logging
+              access_log /var/log/nginx/access.log;
+              error_log  /var/log/nginx/error.log;
+
+              # Gzip compression
+              gzip on;
+              gzip_vary on;
+              gzip_proxied any;
+              gzip_comp_level 6;
+              gzip_types text/plain text/css text/xml application/json
+                         application/javascript application/rss+xml
+                         application/atom+xml image/svg+xml;
+
+              # Security headers (applied globally)
+              add_header X-Frame-Options "SAMEORIGIN" always;
+              add_header X-XSS-Protection "1; mode=block" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+              include /etc/nginx/conf.d/*.conf;
+              include /etc/nginx/sites-enabled/*;
+          }
+      notify: Reload Nginx
+
+    - name: Disable default Nginx site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Deploy virtual host configurations
+      ansible.builtin.template:
+        src: nginx_vhost.j2
+        dest: "/etc/nginx/sites-available/{{ item.server_name.split()[0] }}.conf"
+        mode: "0644"
+      loop: "{{ nginx_vhosts }}"
+      notify: Reload Nginx
+
+    - name: Enable virtual hosts
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ item.server_name.split()[0] }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ item.server_name.split()[0] }}.conf"
+        state: link
+      loop: "{{ nginx_vhosts }}"
+      notify: Reload Nginx
+
+    - name: Test Nginx configuration
+      ansible.builtin.command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Print Nginx test result
+      ansible.builtin.debug:
+        msg: "{{ nginx_test.stderr }}"
+
+  handlers:
+    - name: Reload Nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded

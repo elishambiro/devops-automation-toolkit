@@ -1,0 +1,111 @@
+---
+# backup_configs.yml
+# Backs up critical server configuration files to a central S3 bucket (or local archive).
+# Collects /etc configs, nginx/apache configs, cron jobs, and custom app configs.
+# Compresses and timestamps the archive, then uploads to S3 (if configured).
+# Usage: ansible-playbook backup_configs.yml -i inventory.ini \
+#          -e "s3_bucket=my-config-backups"
+
+- name: Backup server configurations
+  hosts: all
+  become: true
+  vars:
+    backup_local_dir: /tmp/config_backups
+    backup_timestamp: "{{ ansible_date_time.date }}_{{ ansible_date_time.hour }}{{ ansible_date_time.minute }}"
+    backup_filename: "config_{{ inventory_hostname }}_{{ backup_timestamp }}.tar.gz"
+    s3_bucket: ""    # Set to upload to S3 (requires awscli on target)
+    s3_prefix: "server-configs"
+    retention_days: 30
+
+    # List of paths/files to back up
+    config_paths:
+      - /etc/nginx
+      - /etc/apache2
+      - /etc/ssl/certs
+      - /etc/cron.d
+      - /etc/crontab
+      - /etc/systemd/system
+      - /etc/hosts
+      - /etc/hostname
+      - /etc/resolv.conf
+      - /etc/sudoers.d
+      - /etc/ssh/sshd_config
+      - /etc/fail2ban
+      - /etc/ufw
+
+  tasks:
+    - name: Create local backup staging directory
+      ansible.builtin.file:
+        path: "{{ backup_local_dir }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0700"
+
+    - name: Collect existing config files/dirs
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: config_stats
+      loop: "{{ config_paths }}"
+
+    - name: Copy existing configs to staging directory
+      ansible.builtin.copy:
+        src: "{{ item.item }}"
+        dest: "{{ backup_local_dir }}/{{ inventory_hostname }}/"
+        remote_src: true
+        mode: preserve
+      loop: "{{ config_stats.results }}"
+      when: item.stat.exists
+      ignore_errors: true
+
+    - name: Dump list of installed packages
+      ansible.builtin.shell: |
+        dpkg --get-selections > {{ backup_local_dir }}/{{ inventory_hostname }}/installed_packages.txt
+      changed_when: true
+      when: ansible_os_family == "Debian"
+
+    - name: Dump running services
+      ansible.builtin.shell: |
+        systemctl list-units --type=service --state=running --no-pager > \
+          {{ backup_local_dir }}/{{ inventory_hostname }}/running_services.txt
+      changed_when: true
+
+    - name: Create compressed archive
+      community.general.archive:
+        path: "{{ backup_local_dir }}/{{ inventory_hostname }}"
+        dest: "{{ backup_local_dir }}/{{ backup_filename }}"
+        format: gz
+        mode: "0600"
+      register: archive_result
+
+    - name: Print archive info
+      ansible.builtin.debug:
+        msg: "Archive created: {{ backup_local_dir }}/{{ backup_filename }} ({{ archive_result.size | filesizeformat }})"
+
+    - name: Upload to S3
+      ansible.builtin.command: >
+        aws s3 cp {{ backup_local_dir }}/{{ backup_filename }}
+        s3://{{ s3_bucket }}/{{ s3_prefix }}/{{ backup_filename }}
+      when: s3_bucket | length > 0
+      register: s3_upload
+      changed_when: true
+
+    - name: Clean up old local backups
+      ansible.builtin.find:
+        paths: "{{ backup_local_dir }}"
+        patterns: "config_{{ inventory_hostname }}_*.tar.gz"
+        age: "{{ retention_days }}d"
+        recurse: false
+      register: old_backups
+
+    - name: Remove old backup archives
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_backups.files }}"
+
+    - name: Backup summary
+      ansible.builtin.debug:
+        msg:
+          - "Host    : {{ inventory_hostname }}"
+          - "Archive : {{ backup_filename }}"
+          - "S3      : {{ 's3://' + s3_bucket + '/' + s3_prefix + '/' + backup_filename if s3_bucket else 'Not configured' }}"
+          - "Cleaned : {{ old_backups.files | length }} old archive(s) removed"

@@ -1,0 +1,98 @@
+---
+# user_management.yml
+# Creates, updates, and removes system users across servers.
+# Manages SSH authorized keys, sudo access, and group memberships.
+# Usage: ansible-playbook user_management.yml -i inventory.ini
+#
+# Define users in your inventory group_vars or pass with -e:
+#   users_to_create: [{name: alice, groups: [docker], sudo: true, ssh_key: "ssh-rsa ..."}]
+#   users_to_remove: [olduser]
+
+- name: Manage system users
+  hosts: all
+  become: true
+  vars:
+    users_to_create:
+      - name: devops
+        comment: "DevOps Service Account"
+        groups:
+          - docker
+          - sudo
+        sudo: true
+        shell: /bin/bash
+        ssh_key: ""   # Set this to the user's public key
+        password_lock: true
+
+    users_to_remove: []
+
+    # Groups that should exist before creating users
+    required_groups:
+      - docker
+      - developers
+
+  tasks:
+    - name: Ensure required groups exist
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ required_groups }}"
+
+    - name: Create users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        comment: "{{ item.comment | default('') }}"
+        groups: "{{ item.groups | default([]) }}"
+        append: true
+        shell: "{{ item.shell | default('/bin/bash') }}"
+        state: present
+        password_lock: "{{ item.password_lock | default(true) }}"
+        create_home: true
+      loop: "{{ users_to_create }}"
+      register: created_users
+
+    - name: Set up SSH authorized keys
+      ansible.posix.authorized_key:
+        user: "{{ item.name }}"
+        state: present
+        key: "{{ item.ssh_key }}"
+        exclusive: false
+      loop: "{{ users_to_create }}"
+      when: item.ssh_key | default('') | length > 0
+
+    - name: Grant sudo privileges (passwordless)
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ item.name }}"
+        content: "{{ item.name }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: "0440"
+        validate: "visudo -cf %s"
+      loop: "{{ users_to_create }}"
+      when: item.sudo | default(false)
+
+    - name: Revoke sudo for users without sudo flag
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ item.name }}"
+        state: absent
+      loop: "{{ users_to_create }}"
+      when: not (item.sudo | default(false))
+
+    - name: Remove deprecated users
+      ansible.builtin.user:
+        name: "{{ item }}"
+        state: absent
+        remove: true
+      loop: "{{ users_to_remove }}"
+
+    - name: Remove sudo files for removed users
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/{{ item }}"
+        state: absent
+      loop: "{{ users_to_remove }}"
+
+    - name: Display created users
+      ansible.builtin.debug:
+        msg: "Created/updated users: {{ users_to_create | map(attribute='name') | list }}"
+
+    - name: Display removed users
+      ansible.builtin.debug:
+        msg: "Removed users: {{ users_to_remove }}"
+      when: users_to_remove | length > 0

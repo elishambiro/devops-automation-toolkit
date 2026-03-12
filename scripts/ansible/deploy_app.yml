@@ -1,0 +1,81 @@
+---
+# deploy_app.yml
+# Deploys a Dockerized application to target servers.
+# Pulls the specified image, runs the container with env vars and volume mounts,
+# and performs a health check before marking deployment complete.
+# Usage: ansible-playbook deploy_app.yml -i inventory.ini \
+#          -e "app_image=myrepo/myapp:1.2.3 app_port=8080"
+
+- name: Deploy Dockerized application
+  hosts: app_servers
+  become: true
+  vars:
+    app_name: "myapp"
+    app_image: "myrepo/myapp:latest"
+    app_port: 8080
+    app_env_vars: {}          # e.g. {DATABASE_URL: "postgres://...", DEBUG: "false"}
+    app_volumes: []           # e.g. ["/data/app:/app/data"]
+    health_check_path: "/health"
+    health_check_retries: 10
+    health_check_delay: 5
+    docker_restart_policy: "unless-stopped"
+
+  pre_tasks:
+    - name: Verify Docker is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+      changed_when: false
+
+  tasks:
+    - name: Pull latest image
+      community.docker.docker_image:
+        name: "{{ app_image }}"
+        source: pull
+        force_source: true
+
+    - name: Stop and remove existing container (if any)
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Start application container
+      community.docker.docker_container:
+        name: "{{ app_name }}"
+        image: "{{ app_image }}"
+        state: started
+        restart_policy: "{{ docker_restart_policy }}"
+        ports:
+          - "{{ app_port }}:{{ app_port }}"
+        env: "{{ app_env_vars }}"
+        volumes: "{{ app_volumes }}"
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:{{ app_port }}{{ health_check_path }}"]
+          interval: 10s
+          timeout: 5s
+          retries: 3
+
+    - name: Wait for application health check
+      ansible.builtin.uri:
+        url: "http://{{ inventory_hostname }}:{{ app_port }}{{ health_check_path }}"
+        status_code: 200
+      register: health_result
+      retries: "{{ health_check_retries }}"
+      delay: "{{ health_check_delay }}"
+      until: health_result.status == 200
+
+    - name: Verify container is running
+      community.docker.docker_container_info:
+        name: "{{ app_name }}"
+      register: container_info
+
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "Application: {{ app_name }}"
+          - "Image:       {{ app_image }}"
+          - "Port:        {{ app_port }}"
+          - "Status:      {{ container_info.container.State.Status }}"
+          - "Health:      {{ container_info.container.State.Health.Status | default('N/A') }}"
+          - "Deployment:  SUCCESS"

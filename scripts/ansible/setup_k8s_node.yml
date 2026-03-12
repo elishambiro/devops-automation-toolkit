@@ -1,0 +1,129 @@
+---
+# setup_k8s_node.yml
+# Prepares a Linux server to join a Kubernetes cluster as a worker node.
+# - Installs containerd runtime
+# - Installs kubeadm, kubelet, kubectl
+# - Disables swap (required by Kubernetes)
+# - Loads required kernel modules and sysctl settings
+# Usage: ansible-playbook setup_k8s_node.yml -i inventory.ini \
+#          -e "k8s_version=1.29 join_command='kubeadm join ...'"
+
+- name: Prepare Kubernetes worker node
+  hosts: k8s_workers
+  become: true
+  vars:
+    k8s_version: "1.29"
+    k8s_apt_key_url: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key"
+    k8s_apt_repo: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/"
+    join_command: ""   # Set this to the output of: kubeadm token create --print-join-command
+
+  tasks:
+    - name: Disable swap immediately
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+
+    - name: Remove swap from /etc/fstab (permanent)
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+        replace: '# \1'
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Persist kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/k8s.conf
+        content: |
+          overlay
+          br_netfilter
+        mode: "0644"
+
+    - name: Configure sysctl for Kubernetes networking
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+      loop:
+        - {key: 'net.bridge.bridge-nf-call-iptables', value: '1'}
+        - {key: 'net.bridge.bridge-nf-call-ip6tables', value: '1'}
+        - {key: 'net.ipv4.ip_forward', value: '1'}
+
+    - name: Install containerd runtime
+      ansible.builtin.apt:
+        name: containerd
+        state: present
+        update_cache: true
+
+    - name: Generate default containerd config
+      ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: Enable SystemdCgroup in containerd config
+      ansible.builtin.replace:
+        path: /etc/containerd/config.toml
+        regexp: 'SystemdCgroup = false'
+        replace: 'SystemdCgroup = true'
+      notify: Restart containerd
+
+    - name: Install Kubernetes GPG key
+      ansible.builtin.apt_key:
+        url: "{{ k8s_apt_key_url }}"
+        keyring: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+        state: present
+
+    - name: Add Kubernetes repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] {{ k8s_apt_repo }} /"
+        state: present
+        filename: kubernetes
+
+    - name: Install kubeadm, kubelet, kubectl
+      ansible.builtin.apt:
+        name:
+          - "kubelet"
+          - "kubeadm"
+          - "kubectl"
+        state: present
+        update_cache: true
+
+    - name: Hold Kubernetes packages at current version
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop:
+        - kubelet
+        - kubeadm
+        - kubectl
+
+    - name: Enable and start kubelet
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: true
+        state: started
+
+    - name: Join cluster
+      ansible.builtin.command: "{{ join_command }}"
+      when: join_command | length > 0
+      register: join_result
+      changed_when: "'This node has joined the cluster' in join_result.stdout"
+
+    - name: Node preparation complete
+      ansible.builtin.debug:
+        msg:
+          - "Node is ready to join the cluster."
+          - "If join_command was not provided, run: kubeadm token create --print-join-command"
+          - "on the control plane, then re-run with -e join_command='...'"
+
+  handlers:
+    - name: Restart containerd
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted

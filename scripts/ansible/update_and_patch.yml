@@ -1,0 +1,88 @@
+---
+# update_and_patch.yml
+# Performs OS package updates across all servers safely:
+# - Updates package cache and installs security patches
+# - Optionally performs a full upgrade
+# - Handles reboot if kernel was updated (with controlled rolling reboot)
+# - Reports which servers were updated and which required a reboot
+# Usage: ansible-playbook update_and_patch.yml -i inventory.ini [-e full_upgrade=true]
+
+- name: Update and patch servers
+  hosts: all
+  become: true
+  serial: "{{ patch_serial | default('30%') }}"  # Roll through 30% of hosts at a time
+  vars:
+    full_upgrade: false
+    reboot_timeout: 300
+    reboot_enabled: true
+
+  tasks:
+    - name: Update apt package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Apply security updates only
+      ansible.builtin.apt:
+        upgrade: safe
+        force_apt_get: true
+      register: security_update
+      when:
+        - ansible_os_family == "Debian"
+        - not full_upgrade
+
+    - name: Apply full upgrade (if requested)
+      ansible.builtin.apt:
+        upgrade: full
+        force_apt_get: true
+      register: full_update
+      when:
+        - ansible_os_family == "Debian"
+        - full_upgrade
+
+    - name: Check if reboot is required (Debian/Ubuntu)
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required_file
+
+    - name: List packages that require reboot
+      ansible.builtin.command: cat /var/run/reboot-required.pkgs
+      register: reboot_packages
+      changed_when: false
+      failed_when: false
+      when: reboot_required_file.stat.exists
+
+    - name: Show packages requiring reboot
+      ansible.builtin.debug:
+        msg: "Packages requiring reboot: {{ reboot_packages.stdout_lines | default([]) }}"
+      when: reboot_required_file.stat.exists
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        reboot_timeout: "{{ reboot_timeout }}"
+        pre_reboot_delay: 10
+        post_reboot_delay: 30
+        msg: "Rebooting for kernel/security updates"
+      when:
+        - reboot_required_file.stat.exists
+        - reboot_enabled
+
+    - name: Auto-remove unused packages
+      ansible.builtin.apt:
+        autoremove: true
+        purge: true
+      when: ansible_os_family == "Debian"
+
+    - name: Clean apt cache
+      ansible.builtin.apt:
+        autoclean: true
+      when: ansible_os_family == "Debian"
+
+    - name: Patching summary
+      ansible.builtin.debug:
+        msg:
+          - "Host           : {{ inventory_hostname }}"
+          - "Updates applied: {{ (security_update.changed | default(false)) or (full_update.changed | default(false)) }}"
+          - "Reboot required: {{ reboot_required_file.stat.exists | default(false) }}"
+          - "Rebooted       : {{ reboot_required_file.stat.exists | default(false) and reboot_enabled }}"

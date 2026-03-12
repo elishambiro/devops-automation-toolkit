@@ -1,0 +1,74 @@
+name: CI - Lint & Syntax Check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-python:
+    name: Lint Python Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install flake8 requests boto3 psutil
+
+      - name: Flake8 lint
+        run: flake8 scripts/ --max-line-length=120 --ignore=E501,W503
+
+      - name: Check Python syntax
+        run: |
+          find scripts/ -name "*.py" -exec python -m py_compile {} \;
+          echo "All Python files passed syntax check"
+
+  shellcheck:
+    name: ShellCheck Bash Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          find scripts/ -name "*.sh" -exec shellcheck {} \;
+          echo "All shell scripts passed ShellCheck"
+
+  ansible-lint:
+    name: Lint Ansible Playbooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible and ansible-lint
+        run: |
+          pip install ansible ansible-lint
+
+      - name: Install required Ansible collections
+        run: |
+          ansible-galaxy collection install \
+            community.docker \
+            community.general \
+            ansible.posix
+
+      - name: Run ansible-lint
+        run: |
+          ansible-lint scripts/ansible/*.yml \
+            --exclude scripts/ansible/setup_nginx.yml \
+            -w yaml[line-length]
+          echo "All Ansible playbooks passed lint check"

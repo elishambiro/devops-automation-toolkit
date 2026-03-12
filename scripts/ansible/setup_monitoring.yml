@@ -1,0 +1,146 @@
+---
+# setup_monitoring.yml
+# Deploys a Prometheus + Grafana + Node Exporter monitoring stack via Docker Compose.
+# - Node Exporter: collects host-level metrics (CPU, memory, disk, network)
+# - Prometheus: scrapes and stores metrics
+# - Grafana: visualizes metrics with pre-configured dashboards
+# Usage: ansible-playbook setup_monitoring.yml -i inventory.ini
+
+- name: Deploy Prometheus + Grafana monitoring stack
+  hosts: monitoring_servers
+  become: true
+  vars:
+    monitoring_dir: /opt/monitoring
+    prometheus_port: 9090
+    grafana_port: 3000
+    node_exporter_port: 9100
+    grafana_admin_password: "{{ lookup('env', 'GRAFANA_PASSWORD') | default('changeme123', true) }}"
+    prometheus_retention: "30d"
+
+  tasks:
+    - name: Create monitoring directory structure
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ monitoring_dir }}"
+        - "{{ monitoring_dir }}/prometheus"
+        - "{{ monitoring_dir }}/grafana/provisioning/datasources"
+        - "{{ monitoring_dir }}/grafana/provisioning/dashboards"
+        - "{{ monitoring_dir }}/grafana/data"
+
+    - name: Write Prometheus configuration
+      ansible.builtin.copy:
+        dest: "{{ monitoring_dir }}/prometheus/prometheus.yml"
+        mode: "0644"
+        content: |
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+
+          scrape_configs:
+            - job_name: 'prometheus'
+              static_configs:
+                - targets: ['localhost:9090']
+
+            - job_name: 'node_exporter'
+              static_configs:
+                - targets: ['node-exporter:9100']
+
+    - name: Write Grafana datasource configuration
+      ansible.builtin.copy:
+        dest: "{{ monitoring_dir }}/grafana/provisioning/datasources/prometheus.yml"
+        mode: "0644"
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: Prometheus
+              type: prometheus
+              url: http://prometheus:9090
+              isDefault: true
+              editable: false
+
+    - name: Write Docker Compose file
+      ansible.builtin.copy:
+        dest: "{{ monitoring_dir }}/docker-compose.yml"
+        mode: "0644"
+        content: |
+          version: '3.8'
+          services:
+            node-exporter:
+              image: prom/node-exporter:latest
+              container_name: node-exporter
+              restart: unless-stopped
+              volumes:
+                - /proc:/host/proc:ro
+                - /sys:/host/sys:ro
+                - /:/rootfs:ro
+              command:
+                - '--path.procfs=/host/proc'
+                - '--path.rootfs=/rootfs'
+                - '--path.sysfs=/host/sys'
+                - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+              ports:
+                - "{{ node_exporter_port }}:9100"
+
+            prometheus:
+              image: prom/prometheus:latest
+              container_name: prometheus
+              restart: unless-stopped
+              ports:
+                - "{{ prometheus_port }}:9090"
+              volumes:
+                - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+                - prometheus_data:/prometheus
+              command:
+                - '--config.file=/etc/prometheus/prometheus.yml'
+                - '--storage.tsdb.retention.time={{ prometheus_retention }}'
+
+            grafana:
+              image: grafana/grafana:latest
+              container_name: grafana
+              restart: unless-stopped
+              ports:
+                - "{{ grafana_port }}:3000"
+              environment:
+                GF_SECURITY_ADMIN_PASSWORD: "{{ grafana_admin_password }}"
+                GF_USERS_ALLOW_SIGN_UP: "false"
+              volumes:
+                - grafana_data:/var/lib/grafana
+                - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+          volumes:
+            prometheus_data:
+            grafana_data:
+
+    - name: Start monitoring stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        state: present
+        pull: always
+
+    - name: Wait for Prometheus to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ prometheus_port }}/-/ready"
+        status_code: 200
+      retries: 12
+      delay: 5
+      register: result
+      until: result.status == 200
+
+    - name: Wait for Grafana to be ready
+      ansible.builtin.uri:
+        url: "http://localhost:{{ grafana_port }}/api/health"
+        status_code: 200
+      retries: 12
+      delay: 5
+      register: grafana_health
+      until: grafana_health.status == 200
+
+    - name: Monitoring stack deployed
+      ansible.builtin.debug:
+        msg:
+          - "Prometheus : http://{{ inventory_hostname }}:{{ prometheus_port }}"
+          - "Grafana    : http://{{ inventory_hostname }}:{{ grafana_port }} (admin / <password>)"
+          - "Node Exporter: http://{{ inventory_hostname }}:{{ node_exporter_port }}/metrics"

@@ -1,0 +1,145 @@
+---
+# harden_server.yml
+# Applies CIS-inspired security hardening to Ubuntu/Debian servers:
+# - Disables root SSH login and password authentication
+# - Configures UFW firewall (allow SSH, HTTP, HTTPS)
+# - Sets up automatic security updates
+# - Disables unused services
+# - Configures fail2ban for brute force protection
+# Usage: ansible-playbook harden_server.yml -i inventory.ini
+
+- name: Harden server security
+  hosts: all
+  become: true
+  vars:
+    ssh_port: 22
+    allowed_tcp_ports:
+      - "{{ ssh_port }}"
+      - 80
+      - 443
+    admin_users: []  # List of users who should have sudo access
+
+  tasks:
+    - name: Update all packages to latest security patches
+      ansible.builtin.apt:
+        upgrade: safe
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Install security packages
+      ansible.builtin.apt:
+        name:
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+          - auditd
+        state: present
+
+    # --- SSH Hardening ---
+    - name: Harden SSH configuration
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        backup: true
+      loop:
+        - {regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no'}
+        - {regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no'}
+        - {regexp: '^#?X11Forwarding', line: 'X11Forwarding no'}
+        - {regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3'}
+        - {regexp: '^#?LoginGraceTime', line: 'LoginGraceTime 60'}
+        - {regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300'}
+        - {regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2'}
+      notify: Restart SSH
+
+    # --- Firewall ---
+    - name: Reset UFW to defaults
+      community.general.ufw:
+        state: reset
+
+    - name: Set UFW default policies
+      community.general.ufw:
+        policy: deny
+        direction: "{{ item }}"
+      loop:
+        - incoming
+        - routed
+
+    - name: Allow configured TCP ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: "{{ allowed_tcp_ports }}"
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+
+    # --- Fail2Ban ---
+    - name: Configure fail2ban for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        content: |
+          [DEFAULT]
+          bantime  = 3600
+          findtime = 600
+          maxretry = 5
+
+          [sshd]
+          enabled  = true
+          port     = {{ ssh_port }}
+          logpath  = %(sshd_log)s
+          backend  = %(sshd_backend)s
+        mode: "0644"
+      notify: Restart fail2ban
+
+    - name: Enable and start fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        enabled: true
+        state: started
+
+    # --- Automatic Updates ---
+    - name: Configure unattended-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+        mode: "0644"
+
+    # --- Kernel Parameters ---
+    - name: Apply hardening sysctl parameters
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: true
+      loop:
+        - {key: 'net.ipv4.conf.all.send_redirects', value: '0'}
+        - {key: 'net.ipv4.conf.all.accept_redirects', value: '0'}
+        - {key: 'net.ipv4.conf.all.log_martians', value: '1'}
+        - {key: 'net.ipv4.tcp_syncookies', value: '1'}
+        - {key: 'kernel.dmesg_restrict', value: '1'}
+
+    - name: Print hardening summary
+      ansible.builtin.debug:
+        msg:
+          - "SSH hardened: root login disabled, password auth disabled"
+          - "Firewall enabled (UFW): ports {{ allowed_tcp_ports }}"
+          - "fail2ban configured: 5 attempts → 1hr ban"
+          - "Automatic security updates enabled"
+
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted
+
+    - name: Restart fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
